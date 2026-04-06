@@ -2,4 +2,5 @@ streamlit
 pandas
 plotly
 numpy
-faker  # for generating sample data
+faker
+python-dateutil
