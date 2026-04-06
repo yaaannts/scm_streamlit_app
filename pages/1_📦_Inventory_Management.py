@@ -1,59 +1,65 @@
 import streamlit as st
+import pandas as pd
 import plotly.express as px
-from datetime import datetime, timedelta
-# from utils import load_data, apply_filters   # uncomment if using utils
+from datetime import datetime
 
 st.title("📦 Inventory Management Dashboard")
 
-df = pd.read_csv("data/sample_scm_data.csv")
-df["date"] = pd.to_datetime(df["date"])
+# Load / Generate data
+if not os.path.exists("data/sample_scm_data.csv"):
+    st.warning("Generating sample data...")
+    # (Data generation code is in the next section - run once)
 
-# Filters
+df = pd.read_csv("data/sample_scm_data.csv", parse_dates=["date"])
+
+# Sidebar Filters
 st.sidebar.header("Filters")
-date_range = st.sidebar.date_input("Date Range", 
-    [df["date"].min().date(), df["date"].max().date()])
-selected_products = st.sidebar.multiselect("Products", options=df["product"].unique(), default=df["product"].unique()[:4])
-selected_suppliers = st.sidebar.multiselect("Suppliers", options=df["supplier"].unique())
+date_range = st.sidebar.date_input("Select Date Range", 
+    [df["date"].min().date(), df["date"].max().date()], 
+    min_value=df["date"].min().date(), max_value=df["date"].max().date())
+
+products = st.sidebar.multiselect("Products", options=sorted(df["product"].unique()), default=df["product"].unique()[:5])
+suppliers = st.sidebar.multiselect("Suppliers", options=df["supplier"].unique())
 
 filtered = df.copy()
 if date_range:
     filtered = filtered[filtered["date"].between(pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1]))]
-if selected_products:
-    filtered = filtered[filtered["product"].isin(selected_products)]
-if selected_suppliers:
-    filtered = filtered[filtered["supplier"].isin(selected_suppliers)]
+if products:
+    filtered = filtered[filtered["product"].isin(products)]
+if suppliers:
+    filtered = filtered[filtered["supplier"].isin(suppliers)]
 
 # KPIs
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Total Inventory Value", f"${(filtered['inventory_level'] * filtered['unit_cost']).sum():,.0f}")
-k2.metric("Inventory Turnover", f"{(filtered['actual_demand'].sum() / (filtered['inventory_level'].mean() + 1)):.1f}x")
-k3.metric("Stockout Items", len(filtered[filtered["inventory_level"] < 100]))
-k4.metric("Days of Inventory", f"{(filtered['inventory_level'].mean() / (filtered['actual_demand'].mean() + 1)):.0f}")
+k2.metric("Inventory Turnover", f"{(filtered['actual_demand'].sum() / (filtered['inventory_level'].mean()+1)):.2f}x")
+k3.metric("Low Stock Items", len(filtered[filtered["inventory_level"] < 200]))
+k4.metric("Days of Supply", f"{(filtered['inventory_level'].mean() / (filtered['actual_demand'].mean()+1)):.0f}")
 
-tabs = st.tabs(["Overview Charts", "Trends", "Recommendations"])
+tab1, tab2, tab3 = st.tabs(["Charts", "Trends", "Recommendations"])
 
-with tabs[0]:
+with tab1:
     c1, c2 = st.columns(2)
     with c1:
         fig = px.bar(filtered.groupby("product")["inventory_level"].sum().reset_index(), 
-                     x="product", y="inventory_level", title="Inventory Level by Product")
+                     x="product", y="inventory_level", title="Inventory by Product")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        fig = px.pie(filtered, names="category", values="inventory_level", title="Inventory by Category")
+        fig = px.pie(filtered, names="category", values="inventory_level", title="Inventory Distribution by Category")
         st.plotly_chart(fig, use_container_width=True)
 
-with tabs[1]:
-    fig = px.line(filtered.sort_values("date").groupby("date")["inventory_level"].mean().reset_index(), 
-                  x="date", y="inventory_level", title="Average Inventory Trend")
+with tab2:
+    fig = px.line(filtered.groupby("date")["inventory_level"].mean().reset_index(), 
+                  x="date", y="inventory_level", title="Inventory Level Trend")
     st.plotly_chart(fig, use_container_width=True)
 
-with tabs[2]:
-    st.subheader("Reorder Recommendations")
-    low_stock = filtered[filtered["inventory_level"] < 300]
-    if not low_stock.empty:
-        st.warning(f"⚠️ {len(low_stock)} items need attention!")
-        st.dataframe(low_stock[["product", "inventory_level", "actual_demand", "supplier"]])
+with tab3:
+    st.subheader("Reorder Alerts")
+    low = filtered[filtered["inventory_level"] < 250]
+    if len(low) > 0:
+        st.error(f"⚠️ {len(low)} items below safety stock!")
+        st.dataframe(low[["product", "inventory_level", "actual_demand", "supplier"]])
     else:
-        st.success("All inventory levels look healthy!")
+        st.success("Inventory levels are healthy.")
 
-st.dataframe(filtered, use_container_width=True)
+st.dataframe(filtered.sort_values("inventory_level"), use_container_width=True)
